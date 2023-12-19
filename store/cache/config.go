@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"sdp-access/commonlib/store/redis"
+	"github.com/cjstarcc/go-zero-RWCace/store/redis"
 )
 
 type (

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"sdp-access/commonlib/store/redis"
+	"github.com/cjstarcc/go-zero-RWCace/store/redis"
 
-	"sdp-access/commonlib/store/redis/redistest"
+	"github.com/cjstarcc/go-zero-RWCace/store/redis/redistest"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
