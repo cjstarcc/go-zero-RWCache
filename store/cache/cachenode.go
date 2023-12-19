@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cjstarcc/go-zero-RWCace/store/redis"
+	"github.com/cjstarcc/go-zero-RWCache/store/redis"
 
 	"github.com/zeromicro/go-zero/core/jsonx"
 	"github.com/zeromicro/go-zero/core/logx"

@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"github.com/cjstarcc/go-zero-RWCace/store/redis"
+	"github.com/cjstarcc/go-zero-RWCache/store/redis"
 )
 
 type (

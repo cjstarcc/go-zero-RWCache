@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cjstarcc/go-zero-RWCace/store/redis"
+	"github.com/cjstarcc/go-zero-RWCache/store/redis"
 
-	"github.com/cjstarcc/go-zero-RWCace/store/redis/redistest"
+	"github.com/cjstarcc/go-zero-RWCache/store/redis/redistest"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
