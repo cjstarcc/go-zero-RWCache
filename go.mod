@@ -1,4 +1,4 @@
-module github.com/cjstarcc/go-zero-RWCace
+module github.com/cjstarcc/go-zero-RWCache
 
 go 1.16
 
