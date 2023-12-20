@@ -3,10 +3,12 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
 	"github.com/cjstarcc/go-zero-RWCache/store/redis"
+	"github.com/zeromicro/go-zero/core/stat"
 
 	"github.com/zeromicro/go-zero/core/hash"
 	"github.com/zeromicro/go-zero/core/jsonx"
@@ -93,10 +95,14 @@ func (cr CacheRW) TakeCtx(ctx context.Context, val any, key string, query func(v
 		return cr.errNotFound
 	}
 
-	return c.(Cache).TakeCtx(ctx, val, key, query)
+	return cr.dotake(ctx, c.(cacheNode), val, key, query, func(v any) error {
+		return cr.writeClient.(Cache).SetCtx(ctx, key, v)
+	})
+
 }
 
 func (cr CacheRW) TakeWithExpire(val any, key string, query func(val any, expire time.Duration) error) error {
+
 	return cr.TakeWithExpireCtx(context.Background(), val, key, query)
 }
 
@@ -106,5 +112,103 @@ func (cr CacheRW) TakeWithExpireCtx(ctx context.Context, val any, key string, qu
 		return cr.errNotFound
 	}
 
-	return c.(Cache).TakeWithExpireCtx(ctx, val, key, query)
+	expire := cr.writeClient.(cacheNode).aroundDuration(cr.writeClient.(cacheNode).expiry)
+	return cr.dotake(ctx, c.(cacheNode), val, key, func(v any) error {
+		return query(v, expire)
+	}, func(v any) error {
+		return cr.writeClient.SetWithExpireCtx(ctx, key, v, expire)
+	})
+
+	// return c.(Cache).TakeWithExpireCtx(ctx, val, key, query)
+}
+
+func (cr CacheRW) dotake(ctx context.Context, c cacheNode, v any, key string,
+	query func(v any) error, cacheVal func(v any) error) error {
+	logger := logx.WithContext(ctx)
+	val, fresh, err := c.barrier.DoEx(key, func() (any, error) {
+		if err := cr.doGetCache(ctx, c, key, v); err != nil {
+			if errors.Is(err, errPlaceholder) {
+				return nil, cr.errNotFound
+			} else if !errors.Is(err, cr.errNotFound) {
+				// why we just return the error instead of query from db,
+				// because we don't allow the disaster pass to the dbs.
+				// fail fast, in case we bring down the dbs.
+				return nil, err
+			}
+
+			if err = query(v); errors.Is(err, cr.errNotFound) {
+				if err = cr.writeClient.(cacheNode).setCacheWithNotFound(ctx, key); err != nil {
+					logger.Error(err)
+				}
+
+				return nil, cr.errNotFound
+			} else if err != nil {
+				c.stat.IncrementDbFails()
+				return nil, err
+			}
+
+			if err = cacheVal(v); err != nil {
+				logger.Error(err)
+			}
+		}
+
+		return jsonx.Marshal(v)
+	})
+	if err != nil {
+		return err
+	}
+	if fresh {
+		return nil
+	}
+
+	// got the result from previous ongoing query.
+	// why not call IncrementTotal at the beginning of this function?
+	// because a shared error is returned, and we don't want to count.
+	// for example, if the db is down, the query will be failed, we count
+	// the shared errors with one db failure.
+	c.stat.IncrementTotal()
+	c.stat.IncrementHit()
+
+	return jsonx.Unmarshal(val.([]byte), v)
+}
+
+func (cr CacheRW) doGetCache(ctx context.Context, c cacheNode, key string, v any) error {
+	c.stat.IncrementTotal()
+	data, err := c.rds.GetCtx(ctx, key)
+	if err != nil {
+		c.stat.IncrementMiss()
+		return err
+	}
+
+	if len(data) == 0 {
+		c.stat.IncrementMiss()
+		return c.errNotFound
+	}
+
+	c.stat.IncrementHit()
+	if data == notFoundPlaceholder {
+		return errPlaceholder
+	}
+
+	return c.processCache(ctx, key, data, v)
+}
+
+func (cr CacheRW) processCache(ctx context.Context, c cacheNode, key, data string, v any) error {
+	err := jsonx.Unmarshal([]byte(data), v)
+	if err == nil {
+		return nil
+	}
+
+	report := fmt.Sprintf("unmarshal cache, node: %s, key: %s, value: %s, error: %v",
+		c.rds.Addr, key, data, err)
+	logger := logx.WithContext(ctx)
+	logger.Error(report)
+	stat.Report(report)
+	if _, e := cr.writeClient.(cacheNode).rds.DelCtx(ctx, key); e != nil {
+		logger.Errorf("delete invalid cache, node: %s, key: %s, value: %s, error: %v",
+			cr.writeClient.(cacheNode).rds.Addr, key, data, e)
+	}
+
+	// returns errNotFound to reload the value by the given queryFn
+	return cr.errNotFound
 }
